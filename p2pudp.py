@@ -11,7 +11,7 @@ import sys
 from time import time
 
 myid = '0b38ddb4627776f7ddf210cd90f1bec1'
-SERVER = '192.162.66.82'
+SERVER = '192.168.66.82'
 SRVPORT = 8001
 SRCIP = '192.168.2.2'
 SRCPORT = 6789
