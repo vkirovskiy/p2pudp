@@ -11,8 +11,13 @@ import sys
 from time import time
 from os import popen 
 
+<<<<<<< HEAD
 myid = '0000'
 SERVER = '192.162.66.82'
+=======
+myid = '0b38ddb4627776f7ddf210cd90f1bec1'
+SERVER = '192.168.66.82'
+>>>>>>> e262ce6962b35a6bf27ac7488515cb04d662f029
 SRVPORT = 8001
 SRCIP = '192.168.2.2'
 SRCPORT = 6789
