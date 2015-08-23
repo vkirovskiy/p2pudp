@@ -10,135 +10,163 @@ import select
 import sys
 from time import time
 from os import popen 
-
-<<<<<<< HEAD
-myid = '0000'
-SERVER = '192.162.66.82'
-=======
-myid = '0b38ddb4627776f7ddf210cd90f1bec1'
-SERVER = '192.168.66.82'
->>>>>>> e262ce6962b35a6bf27ac7488515cb04d662f029
-SRVPORT = 8001
-SRCIP = '192.168.2.2'
-SRCPORT = 6789
-
-clients = {} 
-registered = False
-
-def create_socket(srvip=SERVER, srvport=SRVPORT, srcip=SRCIP, srcport=SRCPORT):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(0)
-    sock.bind((srcip, srcport))
-    
-    return sock
-
-def send_udp(socket, addr, port, data):
-    socket.sendto(data, (addr, port))
-
-def recv_udp(socket):
-    data, addr = socket.recvfrom(128)
-    
-    return data, addr
-
-def register(socket, srvip=SERVER, srvport=SRVPORT, mid=""):
-
-    send_udp(socket, srvip, srvport, "set " + mid)
-
-def net_worker(socket, data):
-    response = data[0]
-    addrport = data[1]
-
-    if addrport[0] == SERVER and addrport[1] == SRVPORT:
-        sys.stderr.write("Server: " + str(response))
-        catch_server_cmd(socket, addrport, response)
-
-    else:
-        sys.stderr.write("Client: " + "from " + str(addrport) + " " + str(response))
-        catch_client_cmd(socket, addrport, response)
-
-def send_ka_to_clients(socket, clients):
-    for i in clients:
-        claddr, clport = i.split(":")
-        send_udp(socket, claddr, int(clport), "KA")
-        sys.stderr.write("Daemon: Send KA to " + claddr + clport + "\n")
-
-def catch_server_cmd(socket, addrport, response):
-    global registered
-    global clients
-    r = str(response).strip(">").rstrip().split(" ")
-
-    if r[0] == myid and r[1] == 'registered':
-        if not registered:
-            print "Registered on server"
-            registered = True
-
-        # somebody wants to connect
-        if len(r) > 2:
-            sys.stderr.write("Daemon: Query to connect from " + r[2] + "\n")
-            claddr, clport = r[2].split(":")
-            if r[2] not in clients:
-                clients[str(r[2])] = 'unknown'
-
-    elif r[0] == 'client':
-        clients[str(r[2])] = r[1]
-        sys.stderr.write("Daemon: added client " + r[2] + "as" + r[1] + "\n")
-
-def catch_client_cmd(socket, addrport, response):
-    r = str(response).rstrip().split(" ")
-
-    if r[0] == 'exec':
-        print "Executing command ", r[1]
-        for i in popen(r[1]).readlines():
-            send_udp(socket, addrport[0], addrport[1], "> " + i)
-    elif [0] == '>':
-        print str(r)
-
-def id2ip(id):
-    global clients
-    for i in clients:
-        if clients[i] == id:
-            return i
-
-    return False
+from collections import deque
+import argparse
 
 
-def user_worker(socket, data):
-    global clients
+class pServerWorker:
+
+    clients = {} 
+    registered = False
+
+    def __init__(s, server, port, myid):
+        s.server = server
+        s.srvport = port
+        s.myid = myid
+        
+        s.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.socket.connect((server,port))
+
+        s.srcip = s.socket.getsockname()[0]
+        s.srcport = s.socket.getsockname()[1]
+        s.socket.close()
+
+        s.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.socket.setblocking(0)
+        s.socket.bind((s.srcip, s.srcport))
+        s.bufflen = 1024
+
+        s.log = deque('', 128)
+
+    def logger(s, data):
+        s.log.append(data)
+
+    def printlog(s):
+        for i in s.log:
+            print i
+        
+    def send_data(s, addr='', port=0, data=''):
+        if not addr:
+            addr=s.server
+
+        if not port:
+            port=s.srvport
+        s.socket.sendto(data, (addr, port))
+
+    def recv_data(s):
+        response, addrport = s.socket.recvfrom(s.bufflen)
+        
+        if addrport[0] == s.server and addrport[1] == s.srvport:
+            s.logger("Server: " + str(response))
+            s.pCmdHandler(response)
+            
+        else:
+            s.logger("Client: " + "from " + str(addrport) + " " + str(response))
+            s.catch_client_cmd(addrport, response)
+
+    def register(s):
+        s.send_data(data = "set " + s.myid)
+
+    def pCmdHandler(s, data):
+        r = str(data).strip(">").rstrip().split(" ")
+
+        if r[0] == myid and r[1] == 'registered':
+            if not s.registered:
+                s.logger("Registered on server")
+                s.registered = True
+
+            if len(r) > 2:
+                s.logger("Daemon: Query to connect from " + r[2] + "\n")
+                claddr, clport = r[2].split(":")
+                if r[2] not in s.clients:
+                    s.clients[str(r[2])] = 'unknown'
+
+        elif r[0] == 'client':
+            s.clients[str(r[2])] = r[1]
+            s.logger("Daemon: added client " + r[2] + "as" + r[1] + "\n")
+
+    def send_ka_to_clients(s):
+        for i in s.clients:
+            claddr, clport = i.split(":")
+            s.send_data(addr=claddr, port=int(clport), data="KA")
+            s.logger("Daemon: Send KA to " + claddr + clport + "\n")
+        
+
+    def catch_client_cmd(s, addrport, response):
+        r = str(response).rstrip().split(" ")
+
+        if r[0] == 'exec':
+            print "Executing command ", r[1]
+            for i in popen(r[1]).readlines():
+                s.send_data(addr=addrport[0], port=addrport[1], data="> " + i)
+        elif [0] == '>':
+            print str(r)
+
+    def id2ip(s, id):
+        for i in s.clients:
+            if s.clients[i] == id:
+                return i
+
+        return False
+
+
+def user_worker(worker, data):
+
     r = str(data).strip().rstrip().split(" ")
 
     if r[0] == 'listclients':
-        for k in clients:
-            print k, clients[k] 
+        for k in worker.clients:
+            print k, worker.clients[k] 
     elif r[0] == 'connect':
         remoteid = r[1]
         print "Connecting to " + remoteid
-        send_udp(socket, SERVER, SRVPORT, "get " + remoteid)
-        send_udp(socket, SERVER, SRVPORT, "conn " + remoteid)
+        worker.send_data(data="get " + remoteid)
+        worker.send_data(data="conn " + remoteid)
     elif r[0] == "exec":
         remoteid = r[1]
-        raddrport = id2ip(remoteid)
+        raddrport = worker.id2ip(remoteid)
         if raddrport:
             claddr, clport = raddrport.split(":")
-            send_udp(socket, claddr, int(clport), "exec "+ r[2])
+            worker.send_data(addr=claddr, port=int(clport), data="exec "+ r[2])
+    elif r[0] == 'log':
+        worker.printlog()
 
 
-socket = create_socket()
-register(socket, mid=myid)
+# Parse cmdline
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--myid", help="id to find you")
+parser.add_argument("-p", type=int, help="server port")
+parser.add_argument("server", help="helper server ip")
+
+args = parser.parse_args()
+if args.myid:
+    myid = args.myid
+
+if args.server:
+    SERVER=args.server
+    if args.p:
+        SRVPORT=args.p
+    else:
+        SRVPORT=8001
+
+pworker = pServerWorker(SERVER, SRVPORT, myid)
+pworker.register()
 t1 = time()
 
 while True:
-    r, w, e = select.select([socket, sys.stdin],[],[],10)
+    r, w, e = select.select([pworker.socket, sys.stdin],[],[],10)
     for s in r:
-        if s == socket:
-            net_worker(s, recv_udp(s))
+        if s == pworker.socket:
+            pworker.recv_data()
         elif s == sys.stdin:
-            user_worker(socket, s.readline()) 
+            user_worker(pworker, s.readline()) 
         else:
             print "Unknown socket"
 
     t2 = time()
     if t2-t1>10: 
-        register(socket, mid=myid)
-        send_ka_to_clients(socket, clients)
+        pworker.register()
+        pworker.send_ka_to_clients()
         t1=t2
 
