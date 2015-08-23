@@ -11,30 +11,6 @@ from time import time
 import argparse
 from p2pserver import pServerWorker
 
-def user_worker(worker, data):
-
-    r = str(data).strip().rstrip().split(" ")
-
-    if r[0] == 'listclients':
-        for k in worker.clients:
-            print k, worker.clients[k] 
-    elif r[0] == 'connect':
-        remoteid = r[1]
-        print "Connecting to " + remoteid
-        worker.send_data(data="get " + remoteid)
-        worker.send_data(data="conn " + remoteid)
-    elif r[0] == "exec":
-        remoteid = r[1]
-        raddrport = worker.id2ip(remoteid)
-        if raddrport:
-            claddr, clport = raddrport.split(":")
-            worker.send_packet_data(claddr, int(clport), 0, "exec "+ r[2])
-    elif r[0] == 'log':
-        worker.printlog()
-
-
-# Parse cmdline
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--myid", help="id to find you")
 parser.add_argument("-p", type=int, help="server port")
@@ -53,6 +29,7 @@ if args.server:
 
 pworker = pServerWorker(SERVER, SRVPORT, myid)
 pworker.register()
+pworker.user_console("123")
 t1 = time()
 
 while True:
@@ -61,7 +38,8 @@ while True:
         if s == pworker.socket:
             pworker.recv_data()
         elif s == sys.stdin:
-            user_worker(pworker, s.readline()) 
+            line = s.readline()
+            pworker.user_console(line) 
         else:
             print "Unknown socket"
 

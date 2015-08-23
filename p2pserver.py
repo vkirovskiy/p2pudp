@@ -2,11 +2,25 @@ import socket
 from collections import deque
 from os import popen
 from struct import *
+from time import time
+from p2pcmdhandler import pCmdHandler
+import sys
 
 class pServerWorker:
 
-    clients = {} 
+    clients = [] 
     registered = False
+    ka_timeout = 20
+
+    clientstruct = {
+        'id': '',
+        'address': '',
+        'port': 0,
+        'last_ka': 0,
+        'connection': 'CLOSED'
+    }
+
+    usercommands = ['help', 'write', '>', 'exec', 'connect', 'log', 'clients']
 
     def __init__(s, server, port, myid):
         s.server = server
@@ -32,7 +46,7 @@ class pServerWorker:
 
     def printlog(s):
         for i in s.log:
-            print i
+            sys.stdout.write(i)
         
     def send_data(s, addr='', port=0, data=''):
         if not addr:
@@ -43,7 +57,7 @@ class pServerWorker:
         s.socket.sendto(data, (addr, port))
 
     def send_packet_data(s, addr, port, cmdid, data):
-        print "Len of data", str(len(data))
+        #print "Len of data", str(len(data))
         pdata = pack("HH%ds" % (len(data)), cmdid, len(data), data)
         s.send_data(addr, port, pdata)
 
@@ -58,11 +72,23 @@ class pServerWorker:
             s.logger("Client: " + "from " + str(addrport) + " " + str(response))
             (cmdid, psize) = unpack("BH", response[:4])
             pdata = response[4:4+psize]
-            print "cmdid:", cmdid, "psize:", psize, pdata
+            #print "cmdid:", cmdid, "psize:", psize, pdata
             s.catch_client_cmd(addrport, cmdid, psize, pdata)
 
     def register(s):
         s.send_data(data = "set " + s.myid)
+
+    def add_client(s, addr='', port=0, mid=''):
+        for cl in s.clients:
+            if cl['address'] == addr and cl['port'] == port:
+                break
+        else:
+            newcl = s.clientstruct
+            newcl['address'] = addr
+            newcl['port'] = port
+            newcl['id'] = mid
+            newcl['last_ka'] = time()
+            s.clients.append(newcl)
 
     def pCmdHandler(s, data):
         r = str(data).strip(">").rstrip().split(" ")
@@ -75,35 +101,91 @@ class pServerWorker:
             if len(r) > 2:
                 s.logger("Daemon: Query to connect from " + r[2] + "\n")
                 claddr, clport = r[2].split(":")
-                if r[2] not in s.clients:
-                    s.clients[str(r[2])] = 'unknown'
+
+                s.add_client(claddr, int(clport), '')
 
         elif r[0] == 'client':
-            s.clients[str(r[2])] = r[1]
+            claddr, clport = r[2].split(":")
+            s.add_client(claddr, int(clport), r[1])
+
             s.logger("Daemon: added client " + r[2] + "as" + r[1] + "\n")
 
     def send_ka_to_clients(s):
+        tn = time()
         for i in s.clients:
-            claddr, clport = i.split(":")
-            s.send_packet_data(claddr, int(clport), 1, data="KA")
-            s.logger("Daemon: Send KA to " + claddr + clport + "\n")
-        
+            if tn - i['last_ka'] < s.ka_timeout:
+                claddr, clport = i['address'], i['port']
+                s.send_packet_data(claddr, int(clport), 0, data="KA")
+                s.logger("Daemon: Send KA to " + claddr + str(clport) + "\n")
 
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
 
-        print "REceived:", str(cmdid), str(size), r
+        s.logger("Received:" + str(cmdid) + str(size) + r)
 
-        if r[0] == 'exec':
-            print "Executing command ", r[1]
-            for i in popen(r[1]).readlines():
-                s.send_data(addr=addrport[0], port=addrport[1], data="> " + i)
-        elif [0] == '>':
-            print str(r)
+        if cmdid == 0:
+            for cl in s.clients:
+                if cl['id'] == '':
+                    s.send_packet_data(addrport[0], addrport[1], 1, '')
 
-    def id2ip(s, id):
+                if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
+                    cl['last_ka'] = time()
+                    break
+            else:
+                s.logger("KA from unknown client received: " + str(addrport))
+                s.send_packet_data(addrport[0], addrport[1], 1, '')
+
+        elif cmdid == 1:
+            for cl in s.clients:
+                if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
+                    if len(r) == 0:
+                        s.send_packet_data(addrport[0], addrport[1], 1, s.myid)
+                    else:
+                        cl['id'] = r
+        else:
+            cmdh = pCmdHandler(cmdid, r)
+            for i in cmdh.run():
+                s.send_packet_data(addrport[0], addrport[1], 2, i)
+
+    def id2ip(s, mid):
         for i in s.clients:
-            if s.clients[i] == id:
-                return i
+            if i['id'] == mid:
+                return i['address'], i['port']
 
         return False
+    
+    def user_console(s, data):
+        r = str(data).strip().rstrip().split(" ")
+
+        if r[0] in s.usercommands:
+            if r[0] == 'help':
+                print "Available commands:"
+                for i in s.usercommands:
+                    print i 
+            elif r[0] == 'connect':
+                remoteid = r[1]
+                print "Connecting to " + remoteid
+                s.send_data(data="get " + remoteid)
+                s.send_data(data="conn " + remoteid)
+
+            elif r[0] == '>' or r[0] == 'write':
+                claddr, clport = s.id2ip(r[1])
+                cmdlen = len(r[0])+len(r[1])+1
+                s.send_packet_data(claddr, clport, 2, data[cmdlen:])
+
+            elif r[0] == 'exec':
+                claddr, clport = s.id2ip(r[1])
+                cmdlen = len(r[0])+len(r[1])+1
+                s.send_packet_data(claddr, clport, 3, data[cmdlen:])
+
+            elif r[0] == 'log':
+                s.printlog()
+
+            elif r[0] == 'clients':
+                print "Name\t\tAddress\tPort\tLast response"
+                for i in s.clients:
+                    print i['id'] + "\t" + i['address'] + "\t" + str(i['port']) + "\t" + str(i['last_ka'])
+
+        else:
+            print "Invalid command"
+
