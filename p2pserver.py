@@ -10,7 +10,7 @@ class pServerWorker:
 
     clients = [] 
     registered = False
-    ka_timeout = 20
+    ka_timeout = 120
 
     clientstruct = {
         'id': '',
@@ -69,7 +69,7 @@ class pServerWorker:
             s.pCmdHandler(response)
             
         else:
-            s.logger("Client: " + "from " + str(addrport) + " " + str(response))
+            s.logger("Client: " + "from " + str(addrport) + " " + str(response) + "\n")
             (cmdid, psize) = unpack("BH", response[:4])
             pdata = response[4:4+psize]
             #print "cmdid:", cmdid, "psize:", psize, pdata
@@ -121,7 +121,7 @@ class pServerWorker:
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
 
-        s.logger("Received:" + str(cmdid) + str(size) + r)
+        s.logger("Received:" + str(cmdid) + str(size) + r + "\n")
 
         if cmdid == 0:
             for cl in s.clients:
@@ -156,6 +156,12 @@ class pServerWorker:
     
     def user_console(s, data):
         r = str(data).strip().rstrip().split(" ")
+        claddr, clport = s.id2ip(r[1])
+
+        """
+        usercmd = userCmdClass(
+
+        """
 
         if r[0] in s.usercommands:
             if r[0] == 'help':
@@ -185,6 +191,8 @@ class pServerWorker:
                 print "Name\t\tAddress\tPort\tLast response"
                 for i in s.clients:
                     print i['id'] + "\t" + i['address'] + "\t" + str(i['port']) + "\t" + str(i['last_ka'])
+            else:
+                ret = cmdparser(data)
 
         else:
             print "Invalid command"
