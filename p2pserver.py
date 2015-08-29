@@ -3,7 +3,7 @@ from collections import deque
 from os import popen
 from struct import *
 from time import time
-from p2pcmdhandler import pCmdHandler
+from p2pcmdhandler import pStdCmdHandler as cmdHandler
 import sys
 
 class pServerWorker:
@@ -17,7 +17,6 @@ class pServerWorker:
         'address': '',
         'port': 0,
         'last_ka': 0,
-        'connection': 'CLOSED'
     }
 
     usercommands = ['help', 'write', '>', 'exec', 'connect', 'log', 'clients']
@@ -41,6 +40,8 @@ class pServerWorker:
 
         s.log = deque('', 128)
 
+        s.clcmdhandler = cmdHandler(s)
+
     def logger(s, data):
         s.log.append(data)
 
@@ -57,7 +58,6 @@ class pServerWorker:
         s.socket.sendto(data, (addr, port))
 
     def send_packet_data(s, addr, port, cmdid, data):
-        #print "Len of data", str(len(data))
         pdata = pack("HH%ds" % (len(data)), cmdid, len(data), data)
         s.send_data(addr, port, pdata)
 
@@ -114,38 +114,50 @@ class pServerWorker:
         tn = time()
         for i in s.clients:
             if tn - i['last_ka'] < s.ka_timeout:
-                claddr, clport = i['address'], i['port']
-                s.send_packet_data(claddr, int(clport), 0, data="KA")
-                s.logger("Daemon: Send KA to " + claddr + str(clport) + "\n")
+                s.send_packet_data(i['address'], int(i['port']), 0, data=s.myid)
+                s.logger("Daemon: Send KA to " + i['address'] + str(i['port']) + "\n")
 
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
 
         s.logger("Received:" + str(cmdid) + str(size) + r + "\n")
+        
+        for cl in s.clients:
+            if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
+                s.logger("Clnt ans: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
+                cid, ret = s.clcmdhandler.run(cl, cmdid, response)
+                s.logger("Clnt ret: " + str(cid) + " " + str(len(ret)) + " " + str(ret))
 
-        if cmdid == 0:
-            for cl in s.clients:
-                if cl['id'] == '':
-                    s.send_packet_data(addrport[0], addrport[1], 1, '')
+                if type(ret) is list: 
+                    for l in ret:
+                        s.send_packet_data(cl['address'], cl['port'], cid, l)
+                elif type(ret) is str and ret > '':
+                    s.send_packet_data(cl['address'], cl['port'], cid, ret)
 
-                if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-                    cl['last_ka'] = time()
-                    break
-            else:
-                s.logger("KA from unknown client received: " + str(addrport))
-                s.send_packet_data(addrport[0], addrport[1], 1, '')
 
-        elif cmdid == 1:
-            for cl in s.clients:
-                if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-                    if len(r) == 0:
-                        s.send_packet_data(addrport[0], addrport[1], 1, s.myid)
-                    else:
-                        cl['id'] = r
-        else:
-            cmdh = pCmdHandler(cmdid, r)
-            for i in cmdh.run():
-                s.send_packet_data(addrport[0], addrport[1], 2, i)
+#       if cmdid == 0:
+#           for cl in s.clients:
+#               if cl['id'] == '':
+#                   s.send_packet_data(addrport[0], addrport[1], 1, '')
+
+#               if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
+#                   cl['last_ka'] = time()
+#                   break
+#           else:
+#               s.logger("KA from unknown client received: " + str(addrport))
+#               s.send_packet_data(addrport[0], addrport[1], 1, '')
+
+#       elif cmdid == 1:
+#           for cl in s.clients:
+#               if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
+#                   if len(r) == 0:
+#                       s.send_packet_data(addrport[0], addrport[1], 1, s.myid)
+#                   else:
+#                       cl['id'] = r
+#       else:
+#           cmdh = pCmdHandler(cmdid, r)
+#           for i in cmdh.run():
+#               s.send_packet_data(addrport[0], addrport[1], 2, i)
 
     def id2ip(s, mid):
         for i in s.clients:
@@ -156,7 +168,6 @@ class pServerWorker:
     
     def user_console(s, data):
         r = str(data).strip().rstrip().split(" ")
-        claddr, clport = s.id2ip(r[1])
 
         """
         usercmd = userCmdClass(
@@ -174,15 +185,15 @@ class pServerWorker:
                 s.send_data(data="get " + remoteid)
                 s.send_data(data="conn " + remoteid)
 
-            elif r[0] == '>' or r[0] == 'write':
-                claddr, clport = s.id2ip(r[1])
-                cmdlen = len(r[0])+len(r[1])+1
-                s.send_packet_data(claddr, clport, 2, data[cmdlen:])
+           #elif r[0] == '>' or r[0] == 'write':
+           #    claddr, clport = s.id2ip(r[1])
+           #    cmdlen = len(r[0])+len(r[1])+1
+           #    s.send_packet_data(claddr, clport, 2, data[cmdlen:])
 
             elif r[0] == 'exec':
                 claddr, clport = s.id2ip(r[1])
                 cmdlen = len(r[0])+len(r[1])+1
-                s.send_packet_data(claddr, clport, 3, data[cmdlen:])
+                s.send_packet_data(claddr, clport, 2, data[cmdlen:])
 
             elif r[0] == 'log':
                 s.printlog()

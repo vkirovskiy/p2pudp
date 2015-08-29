@@ -29,7 +29,6 @@ if args.server:
 
 pworker = pServerWorker(SERVER, SRVPORT, myid)
 pworker.register()
-pworker.user_console("123")
 t1 = time()
 
 while True:
