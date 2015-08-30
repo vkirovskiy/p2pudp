@@ -5,6 +5,7 @@ from struct import *
 from time import time
 from p2pcmdhandler import pStdCmdHandler as cmdHandler
 import sys
+import types
 
 class pServerWorker:
 
@@ -124,40 +125,18 @@ class pServerWorker:
         
         for cl in s.clients:
             if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-                s.logger("Clnt ans: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
-                cid, ret = s.clcmdhandler.run(cl, cmdid, response)
-                s.logger("Clnt ret: " + str(cid) + " " + str(len(ret)) + " " + str(ret))
+                s.logger("Cmd id received: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
+                ret = s.clcmdhandler.run(cl, cmdid, response)
 
-                if type(ret) is list: 
-                    for l in ret:
-                        s.send_packet_data(cl['address'], cl['port'], cid, l)
-                elif type(ret) is str and ret > '':
-                    s.send_packet_data(cl['address'], cl['port'], cid, ret)
+                if isinstance(ret, types.GeneratorType):
+                    for cid, l in ret:
+                        s.logger("Cmd id returned: " + str(cid) +" " + str(len(l)) + " " + str(l))
+                        if isinstance(l, list):
+                            for m in l:
+                                if m > '': s.send_packet_data(cl['address'], cl['port'], cid, m)
+                        elif isinstance(l, str):
+                            if l > '': s.send_packet_data(cl['address'], cl['port'], cid, l)
 
-
-#       if cmdid == 0:
-#           for cl in s.clients:
-#               if cl['id'] == '':
-#                   s.send_packet_data(addrport[0], addrport[1], 1, '')
-
-#               if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-#                   cl['last_ka'] = time()
-#                   break
-#           else:
-#               s.logger("KA from unknown client received: " + str(addrport))
-#               s.send_packet_data(addrport[0], addrport[1], 1, '')
-
-#       elif cmdid == 1:
-#           for cl in s.clients:
-#               if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-#                   if len(r) == 0:
-#                       s.send_packet_data(addrport[0], addrport[1], 1, s.myid)
-#                   else:
-#                       cl['id'] = r
-#       else:
-#           cmdh = pCmdHandler(cmdid, r)
-#           for i in cmdh.run():
-#               s.send_packet_data(addrport[0], addrport[1], 2, i)
 
     def id2ip(s, mid):
         for i in s.clients:
@@ -168,11 +147,6 @@ class pServerWorker:
     
     def user_console(s, data):
         r = str(data).strip().rstrip().split(" ")
-
-        """
-        usercmd = userCmdClass(
-
-        """
 
         if r[0] in s.usercommands:
             if r[0] == 'help':

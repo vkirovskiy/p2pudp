@@ -3,6 +3,7 @@
 from os import popen
 import sys
 from time import time
+import types
 
 class pStdCmdHandler:
     cmds = {}
@@ -24,15 +25,16 @@ class pStdCmdHandler:
         return s.server.myid
 
     def run_command(s, client, data):
-        a = []
         for i in popen(data).readlines():
-            a.append(i)
-        return a
+            yield i
             
 
     def receive_ka(s, client, data):
-        client['last_ka'] = time()
-        client['id'] = data.strip().rstrip()
+        if client['id'] == '':
+            client['last_ka'] = time()
+            client['id'] = data.strip().rstrip()
+            print "Added client %s [%s:%s]" % (client['id'], client['address'], client['port'])
+
         return ''
 
     def receive_id(s, client, data):
@@ -47,26 +49,16 @@ class pStdCmdHandler:
     def run(s, client, cmdid, data):
     
         cmd = s.cmds[cmdid]
-        if cmdid < 128:
-            return cmdid+128, cmd(client, data)
-        else:
-            return cmdid, cmd(client, data)
+        rcmdid = 128+cmdid if cmdid < 128 else cmdid
+
+        ret = cmd(client, data)
+
+        if isinstance(ret, str):
+            yield rcmdid, [ret]
+        elif isinstance(ret, list):
+            yield rcmdid, ret
+        elif isinstance(ret, types.GeneratorType):
+            for i in ret:
+                yield rcmdid, i
         
-
-
-class pCmdHandler:
-    def __init__(s, cmdid, data):
-        s.cmdid = cmdid
-        s.data = data
-        # cmdid 2 - stdin
-        # cmdid 3 - exec
-
-    def run(s):
-        if s.cmdid == 2:
-            sys.stdout.write("=> " + s.data)
-
-        elif s.cmdid == 3:
-            for i in popen(s.data).readlines():
-                yield i
-
 
