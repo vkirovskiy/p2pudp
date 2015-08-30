@@ -6,6 +6,7 @@ from time import time
 from p2pcmdhandler import pStdCmdHandler as cmdHandler
 import sys
 import types
+import threading
 
 class pServerWorker:
 
@@ -114,9 +115,9 @@ class pServerWorker:
     def send_ka_to_clients(s):
         tn = time()
         for i in s.clients:
-            if tn - i['last_ka'] < s.ka_timeout:
-                s.send_packet_data(i['address'], int(i['port']), 0, data=s.myid)
-                s.logger("Daemon: Send KA to " + i['address'] + str(i['port']) + "\n")
+            #if tn - i['last_ka'] < s.ka_timeout:
+            s.send_packet_data(i['address'], int(i['port']), 0, data=s.myid)
+            s.logger("Daemon: Send KA to " + i['address'] + str(i['port']) + "\n")
 
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
@@ -126,16 +127,18 @@ class pServerWorker:
         for cl in s.clients:
             if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
                 s.logger("Cmd id received: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
-                ret = s.clcmdhandler.run(cl, cmdid, response)
+                #ret = s.clcmdhandler.run(cl, cmdid, response)
+                th = threading.Thread(target=s.clcmdhandler.run, args=(cl, cmdid, response))
+                th.start()
 
-                if isinstance(ret, types.GeneratorType):
-                    for cid, l in ret:
-                        s.logger("Cmd id returned: " + str(cid) +" " + str(len(l)) + " " + str(l))
-                        if isinstance(l, list):
-                            for m in l:
-                                if m > '': s.send_packet_data(cl['address'], cl['port'], cid, m)
-                        elif isinstance(l, str):
-                            if l > '': s.send_packet_data(cl['address'], cl['port'], cid, l)
+#               if isinstance(ret, types.GeneratorType):
+#                   for cid, l in ret:
+#                       s.logger("Cmd id returned: " + str(cid) +" " + str(len(l)) + " " + str(l))
+#                       if isinstance(l, list):
+#                           for m in l:
+#                               if m > '': s.send_packet_data(cl['address'], cl['port'], cid, m)
+#                       elif isinstance(l, str):
+#                           if l > '': s.send_packet_data(cl['address'], cl['port'], cid, l)
 
 
     def id2ip(s, mid):

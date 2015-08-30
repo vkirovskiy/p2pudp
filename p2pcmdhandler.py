@@ -30,10 +30,9 @@ class pStdCmdHandler:
             
 
     def receive_ka(s, client, data):
+        client['last_ka'] = time()
         if client['id'] == '':
-            client['last_ka'] = time()
             client['id'] = data.strip().rstrip()
-            print "Added client %s [%s:%s]" % (client['id'], client['address'], client['port'])
 
         return ''
 
@@ -53,12 +52,17 @@ class pStdCmdHandler:
 
         ret = cmd(client, data)
 
-        if isinstance(ret, str):
-            yield rcmdid, [ret]
-        elif isinstance(ret, list):
-            yield rcmdid, ret
-        elif isinstance(ret, types.GeneratorType):
-            for i in ret:
-                yield rcmdid, i
-        
+        if isinstance(ret, types.GeneratorType):
+            for l in ret:
+                s.server.logger("Cmd id returned: " + str(rcmdid) +" " + str(len(l)) + " " + str(l))
+                if isinstance(l, list):
+                    for m in l:
+                        if m > '': s.server.send_packet_data(client['address'], client['port'], rcmdid, m)
+                elif isinstance(l, str):
+                    if l > '': s.server.send_packet_data(client['address'], client['port'], rcmdid, l)
+        elif isinstance(ret, str) and ret > '':
+            s.server.send_packet_data(client['address'], client['port'], rcmdid, ret)
+        elif isinstance(ret, list) and len(list)>0:
+            for l in ret:
+                s.server.send_packet_data(client['address'], client['port'], rcmdid, l)
 
