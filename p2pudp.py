@@ -10,6 +10,8 @@ import sys
 from time import time
 import argparse
 from p2pserver import pServerWorker
+import signal
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--myid", help="id to find you")
@@ -28,6 +30,8 @@ if args.server:
         SRVPORT=8001
 
 pworker = pServerWorker(SERVER, SRVPORT, myid)
+signal.signal(signal.SIGINT, pworker.sig_exit_handler)
+
 pworker.register()
 t1 = time()
 
