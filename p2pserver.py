@@ -7,6 +7,8 @@ from p2pcmdhandler import pStdCmdHandler as cmdHandler
 import sys
 import types
 import threading
+import string
+import random
 
 class pServerWorker:
 
@@ -38,11 +40,23 @@ class pServerWorker:
         s.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.socket.setblocking(0)
         s.socket.bind((s.srcip, s.srcport))
-        s.bufflen = 1024
+        s.bufflen = 65535 
 
         s.log = deque('', 128)
+        s.cmdq = deque('', 1024)
 
         s.clcmdhandler = cmdHandler(s)
+
+        s.th_run = 1
+        s.th = threading.Thread(target=s.clcmdhandler.run)
+        s.th.start()
+
+    def sig_exit_handler(s, sig, f):
+        s.th_run = 0
+        s.th.join()
+
+        print "\nBye\n"
+        sys.exit(0)
 
     def logger(s, data):
         s.log.append(data)
@@ -57,23 +71,32 @@ class pServerWorker:
 
         if not port:
             port=s.srvport
-        s.socket.sendto(data, (addr, port))
+
+        while True:
+            try:
+                s.socket.sendto(data, (addr, port))
+                break
+            except IOError, e:
+                if e.errno == 11: pass
 
     def send_packet_data(s, addr, port, cmdid, data):
-        pdata = pack("HH%ds" % (len(data)), cmdid, len(data), data)
+        uniqstr = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+        pdata = pack("H4sH%ds" % (len(data)), cmdid, uniqstr, len(data), data)
         s.send_data(addr, port, pdata)
 
     def recv_data(s):
         response, addrport = s.socket.recvfrom(s.bufflen)
+
+        s.logger("UDP: " + str(response.rstrip()) + " len " + str(len(response)) + "\n")
         
         if addrport[0] == s.server and addrport[1] == s.srvport:
-            s.logger("Server: " + str(response))
+            s.logger("Server: " + str(response.rstrip()))
             s.pCmdHandler(response)
             
         else:
             s.logger("Client: " + "from " + str(addrport) + " " + str(response) + "\n")
-            (cmdid, psize) = unpack("BH", response[:4])
-            pdata = response[4:4+psize]
+            (cmdid, uniqstr, psize) = unpack("B4sH", response[:8])
+            pdata = response[8:8+psize]
             #print "cmdid:", cmdid, "psize:", psize, pdata
             s.catch_client_cmd(addrport, cmdid, psize, pdata)
 
@@ -81,10 +104,15 @@ class pServerWorker:
         s.send_data(data = "set " + s.myid)
 
     def add_client(s, addr='', port=0, mid=''):
+        found = 0
+
         for cl in s.clients:
+            print "Finding clients: ", cl['address'], " = ", addr, cl['port'], " = ", port
             if cl['address'] == addr and cl['port'] == port:
-                break
-        else:
+               found = 1 
+               print "found"
+
+        if not found:
             newcl = s.clientstruct
             newcl['address'] = addr
             newcl['port'] = port
@@ -128,17 +156,9 @@ class pServerWorker:
             if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
                 s.logger("Cmd id received: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
                 #ret = s.clcmdhandler.run(cl, cmdid, response)
-                th = threading.Thread(target=s.clcmdhandler.run, args=(cl, cmdid, response))
-                th.start()
-
-#               if isinstance(ret, types.GeneratorType):
-#                   for cid, l in ret:
-#                       s.logger("Cmd id returned: " + str(cid) +" " + str(len(l)) + " " + str(l))
-#                       if isinstance(l, list):
-#                           for m in l:
-#                               if m > '': s.send_packet_data(cl['address'], cl['port'], cid, m)
-#                       elif isinstance(l, str):
-#                           if l > '': s.send_packet_data(cl['address'], cl['port'], cid, l)
+                s.cmdq.append((cl, cmdid, response))
+                #th = threading.Thread(target=s.clcmdhandler.run, args=(cl, cmdid, response))
+                #th.start()
 
 
     def id2ip(s, mid):
