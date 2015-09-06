@@ -70,6 +70,7 @@ class pStdCmdHandler:
                         s.server.ostream['seek'] = oseek 
                         s.server.ostream['data'] = bytearray(fdata) 
                         oseek = f.tell()
+                        s.server.logger("Stream out" + s.server.ostream['type'] + " " + str(s.server.ostream['seek']) + " " + str(len(s.server.ostream['data'])))
                         yield pickle.dumps(s.server.ostream)
 
     def receive_ka(s, client, data):
@@ -90,6 +91,8 @@ class pStdCmdHandler:
 
     def recv_stream(s, client, data):
         ddict = pickle.loads(data)
+
+        s.server.logger("Stream in" + ddict['type'] + " " + str(ddict['seek']) + " " + str(len(ddict['data'])))
         
         if ddict['type'] == 'file' and len(ddict['data']) == 0:
             #print "Stream: ", ddict['type'], ddict['name'], ddict['uid'], ddict['seek'], ddict['size']
@@ -131,7 +134,8 @@ class pStdCmdHandler:
         while s.server.th_run:
             try: 
                 (client, cmdid, data) = s.server.cmdq.popleft()
-                s.server.logger("Thread: recerved cmd " + str(cmdid) + "\n")
+                qlen = len(s.server.cmdq)
+                s.server.logger("Thread: recerved cmd " + str(cmdid) + " [Qlen: " + str(qlen) + "]\n")
 
                 cmd = s.cmds[cmdid]
                 rcmdid = 128+cmdid if cmdid < 128 else cmdid

@@ -2,7 +2,7 @@ import socket
 from collections import deque
 from os import popen
 from struct import *
-from time import time
+from time import time, sleep
 from p2pcmdhandler import pStdCmdHandler as cmdHandler
 import sys
 import types
@@ -44,7 +44,7 @@ class pServerWorker:
         s.bufflen = 65535 
 
         s.log = deque('', 128)
-        s.cmdq = deque('', 1024)
+        s.cmdq = deque()
 
         s.packetlog = ''
         s.packetlogfd = ''
@@ -101,7 +101,9 @@ class pServerWorker:
                 s.logger("UDP: sent  " + str(len(data)) + " bytes \n")
                 break
             except IOError, e:
-                if e.errno == 11: pass
+                if e.errno == 11: 
+                    s.logger("UDP socket busy")
+                    sleep(0.01)
 
     def send_packet_data(s, addr, port, cmdid, data):
         uniqstr = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
