@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--myid", help="id to find you")
 parser.add_argument("-p", type=int, help="server port")
 parser.add_argument("server", help="helper server ip")
+parser.add_argument("-l", help="log file with packet trace")
 
 args = parser.parse_args()
 if args.myid:
@@ -30,6 +31,8 @@ if args.server:
         SRVPORT=8001
 
 pworker = pServerWorker(SERVER, SRVPORT, myid)
+if args.l: pworker.packetlog = args.l
+
 signal.signal(signal.SIGINT, pworker.sig_exit_handler)
 
 pworker.register()

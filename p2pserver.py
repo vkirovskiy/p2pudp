@@ -46,7 +46,10 @@ class pServerWorker:
         s.log = deque('', 128)
         s.cmdq = deque('', 1024)
 
-        s.oreadsize = 8192
+        s.packetlog = ''
+        s.packetlogfd = ''
+
+        s.oreadsize = 16384 
         s.ostream = {
             'name': '',
             'type': '',
@@ -71,6 +74,15 @@ class pServerWorker:
 
     def logger(s, data):
         s.log.append(data)
+
+        if s.packetlog:
+            if type(s.packetlogfd) == 'file':
+                if s.packetlogfd.closed:
+                    s.packetlogfd = open(s.packetlog, 'a')
+            else:
+                s.packetlogfd = open(s.packetlog, 'a')
+
+            s.packetlogfd.write(data)
 
     def printlog(s):
         for i in s.log:
