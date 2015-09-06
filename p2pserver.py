@@ -9,6 +9,7 @@ import types
 import threading
 import string
 import random
+import pickle
 
 class pServerWorker:
 
@@ -23,7 +24,7 @@ class pServerWorker:
         'last_ka': 0,
     }
 
-    usercommands = ['help', 'write', '>', 'exec', 'connect', 'log', 'clients']
+    usercommands = ['help', 'write', '>', 'exec', 'connect', 'log', 'clients', 'testbuff', 'getfile']
 
     def __init__(s, server, port, myid):
         s.server = server
@@ -44,6 +45,16 @@ class pServerWorker:
 
         s.log = deque('', 128)
         s.cmdq = deque('', 1024)
+
+        s.oreadsize = 8192
+        s.ostream = {
+            'name': '',
+            'type': '',
+            'uid': '',
+            'size': '',
+            'seek': 0,
+            'data': []
+        }
 
         s.clcmdhandler = cmdHandler(s)
 
@@ -75,28 +86,27 @@ class pServerWorker:
         while True:
             try:
                 s.socket.sendto(data, (addr, port))
+                s.logger("UDP: sent  " + str(len(data)) + " bytes \n")
                 break
             except IOError, e:
                 if e.errno == 11: pass
 
     def send_packet_data(s, addr, port, cmdid, data):
         uniqstr = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
-        pdata = pack("H4sH%ds" % (len(data)), cmdid, uniqstr, len(data), data)
+        pdata = pack("H4sI%ds" % (len(data)), cmdid, uniqstr, len(data), data)
         s.send_data(addr, port, pdata)
 
     def recv_data(s):
         response, addrport = s.socket.recvfrom(s.bufflen)
 
-        s.logger("UDP: " + str(response.rstrip()) + " len " + str(len(response)) + "\n")
+        s.logger("UDP: received  " + str(len(response)) + " bytes \n")
         
         if addrport[0] == s.server and addrport[1] == s.srvport:
-            s.logger("Server: " + str(response.rstrip()))
             s.pCmdHandler(response)
             
         else:
-            s.logger("Client: " + "from " + str(addrport) + " " + str(response) + "\n")
-            (cmdid, uniqstr, psize) = unpack("B4sH", response[:8])
-            pdata = response[8:8+psize]
+            (cmdid, uniqstr, psize) = unpack("H4sI", response[:12])
+            pdata = response[12:12+psize]
             #print "cmdid:", cmdid, "psize:", psize, pdata
             s.catch_client_cmd(addrport, cmdid, psize, pdata)
 
@@ -125,7 +135,7 @@ class pServerWorker:
 
         if r[0] == s.myid and r[1] == 'registered':
             if not s.registered:
-                s.logger("Registered on server")
+                s.logger("Registered on server\n")
                 s.registered = True
 
             if len(r) > 2:
@@ -150,15 +160,15 @@ class pServerWorker:
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
 
-        s.logger("Received:" + str(cmdid) + str(size) + r + "\n")
-        
         for cl in s.clients:
             if cl['address'] == addrport[0] and cl['port'] == addrport[1]:
-                s.logger("Cmd id received: " + str(cmdid) +" " + str(len(response)) + " " + str(response))
-                #ret = s.clcmdhandler.run(cl, cmdid, response)
-                s.cmdq.append((cl, cmdid, response))
-                #th = threading.Thread(target=s.clcmdhandler.run, args=(cl, cmdid, response))
-                #th.start()
+                if s.th_run:
+                    if not s.th.isAlive():
+                        print "Starting thread"
+                        s.th = threading.Thread(target=s.clcmdhandler.run)
+                        s.th.start()
+
+                    s.cmdq.append((cl, cmdid, response))
 
 
     def id2ip(s, mid):
@@ -199,6 +209,20 @@ class pServerWorker:
                 print "Name\t\tAddress\tPort\tLast response"
                 for i in s.clients:
                     print i['id'] + "\t" + i['address'] + "\t" + str(i['port']) + "\t" + str(i['last_ka'])
+            elif r[0] == 'testbuff':
+                claddr, clport = s.id2ip(r[1])
+                bufflen = int(r[2]) 
+                sbuff = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in xrange(bufflen))
+                s.send_packet_data(claddr, clport, 128+2, sbuff)
+            elif r[0] == 'getfile':
+                claddr, clport = s.id2ip(r[1])
+                fname = r[2]
+                fobj = s.ostream
+                fobj['name'] = fname
+                fobj['type'] = 'file'
+                fobj['uid'] = ''
+                fobj['size'] = 0
+                s.send_packet_data(claddr, clport, 3, pickle.dumps(fobj))
             else:
                 ret = cmdparser(data)
 
