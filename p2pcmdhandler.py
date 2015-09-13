@@ -11,9 +11,9 @@ import random
 from struct import *
 
 class pStdCmdHandler:
-    cmds = {}
 
     def __init__(s, srv):
+        s.cmds = {}
         s.server = srv
         s.cmds[0] = s.send_ka
         s.cmds[1] = s.send_id
@@ -129,11 +129,12 @@ class pStdCmdHandler:
 
     def run(s):
         
-        s.server.logger("Thread worker is running\n")
+        print("Thread worker is running, my id " + s.server.myid +"\n")
 
         while s.server.th_run:
             try: 
                 (client, cmdid, data) = s.server.cmdq.popleft()
+                s.server.logger("Thread " + s.server.myid + " got cmd " + str(cmdid) + " " + data + " from client " + client['id'] + "\n")
                 qlen = len(s.server.cmdq)
                 s.server.logger("Thread: recerved cmd " + str(cmdid) + " [Qlen: " + str(qlen) + "]\n")
 
@@ -141,6 +142,7 @@ class pStdCmdHandler:
                 rcmdid = 128+cmdid if cmdid < 128 else cmdid
 
                 ret = cmd(client, data)
+
 
                 if isinstance(ret, types.GeneratorType):
                     for l in ret:
