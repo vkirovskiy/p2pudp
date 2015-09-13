@@ -77,7 +77,7 @@ local l = lease()
 while 1 do
 	local dgram, ip, port = udp:receivefrom()
 	if dgram then
-	    local cmd, value = string.match(dgram, "(%a+)%s+(%w+)")
+	    local cmd, value = string.match(dgram, "(%a+)%s+(.*)$")
 	    print("Got cmd: " .. dgram)
 	    if cmd and value then
 		local ret = l.cmd_worker(cmd, value, ip, port)
