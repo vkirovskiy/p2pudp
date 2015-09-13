@@ -11,7 +11,11 @@ local function lease()
         end
 
 	local function get_lease(hash)
-	    return ldict[hash]
+	    if ldict[hash] then
+		return ldict[hash]
+	    else
+		return false 
+	    end
 	end
 
 	local function want_connect(hash, ip_and_port_str)
@@ -40,7 +44,12 @@ local function lease()
 	        store_lease(value, ip .. ":" .. port) 
 		return value .. " registered " .. who_wanted_connect(value)
 	    elseif cmds == "get" or cmds == "getlease" then
-		return "client " .. value .. " " .. get_lease(value)
+		local ret = get_lease(value)
+		if ret then
+		    return "client " .. value .. " " .. get_lease(value)
+		else
+		    return "No"
+		end
 	    elseif cmds == "con" or cmds == "conn" then
 		local ret = want_connect(value, ip .. ":" .. port)
 		if ret then
@@ -77,11 +86,13 @@ local l = lease()
 while 1 do
 	local dgram, ip, port = udp:receivefrom()
 	if dgram then
-	    local cmd, value = string.match(dgram, "(%a+)%s+(.*)$")
-	    print("Got cmd: " .. dgram)
+	    print("Got dgram: " .. dgram)
+	    local cmd, value = string.match(dgram, "(%a+)%s+([%w%-]+)")
 	    if cmd and value then
+	        print("Got cmd: " .. cmd .. " " .. value)
 		local ret = l.cmd_worker(cmd, value, ip, port)
 		if ret then
+		        print("Return: " .. ret)
 			udp:sendto(">" .. ret .. "\n", ip, port) 
 		else
 			udp:sendto(">" .. ip .. ":" .. port .. "\n", ip, port)
