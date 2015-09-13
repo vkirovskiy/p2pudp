@@ -11,10 +11,12 @@ import string
 import random
 import pickle
 
+ENDC = '\033[0m'
+OKGREEN = '\033[92m'
+OKRED = '\033[91m'
+
 class pServerWorker:
 
-    clients = [] 
-    registered = False
     ka_timeout = 120
 
     clientstruct = {
@@ -24,12 +26,16 @@ class pServerWorker:
         'last_ka': 0,
     }
 
-    usercommands = ['help', 'write', '>', 'exec', 'connect', 'log', 'clients', 'testbuff', 'getfile']
+    def __init__(s, server, port, myid, autoconn):
+        s.clients = []
+        s.registered = False
 
-    def __init__(s, server, port, myid):
+
         s.server = server
         s.srvport = port
         s.myid = myid
+        s.autoconnect = autoconn
+        s.wait_client = ''
         
         s.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.socket.connect((server,port))
@@ -41,6 +47,7 @@ class pServerWorker:
         s.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.socket.setblocking(0)
         s.socket.bind((s.srcip, s.srcport))
+        print s.myid + " listening on " + s.srcip + ":" + str(s.srcport)
         s.bufflen = 65535 
 
         s.log = deque('', 128)
@@ -56,6 +63,7 @@ class pServerWorker:
             'uid': '',
             'size': '',
             'seek': 0,
+            'blksize': 32768,
             'data': []
         }
 
@@ -65,12 +73,11 @@ class pServerWorker:
         s.th = threading.Thread(target=s.clcmdhandler.run)
         s.th.start()
 
-    def sig_exit_handler(s, sig, f):
+    def sig_exit_handler(s):
         s.th_run = 0
         s.th.join()
 
-        print "\nBye\n"
-        sys.exit(0)
+        print "\n" + __name__ + " Bye\n"
 
     def logger(s, data):
         s.log.append(data)
@@ -98,6 +105,7 @@ class pServerWorker:
         while True:
             try:
                 s.socket.sendto(data, (addr, port))
+                #print OKRED + "[" + s.myid + "]" + data + ENDC
                 s.logger("UDP: sent  " + str(len(data)) + " bytes \n")
                 break
             except IOError, e:
@@ -114,6 +122,7 @@ class pServerWorker:
         response, addrport = s.socket.recvfrom(s.bufflen)
 
         s.logger("UDP: received  " + str(len(response)) + " bytes \n")
+       # print OKGREEN + "[" + s.myid + "] " + response + ENDC
         
         if addrport[0] == s.server and addrport[1] == s.srvport:
             s.pCmdHandler(response)
@@ -126,7 +135,10 @@ class pServerWorker:
 
     def register(s):
         s.send_data(data = "set " + s.myid)
-
+        
+    def connect_to(s, uid):
+        s.send_data(data = "get " + uid)
+        
     def add_client(s, addr='', port=0, mid=''):
         found = 0
 
@@ -142,6 +154,7 @@ class pServerWorker:
             newcl['port'] = port
             newcl['id'] = mid
             newcl['last_ka'] = time()
+            print "Append " + str(newcl)
             s.clients.append(newcl)
 
     def pCmdHandler(s, data):
@@ -151,6 +164,9 @@ class pServerWorker:
             if not s.registered:
                 s.logger("Registered on server\n")
                 s.registered = True
+                if isinstance(s.autoconnect, str) and len(s.autoconnect) > 0:
+                    s.connect_to(s.autoconnect)
+                    s.autoconnect = ''
 
             if len(r) > 2:
                 s.logger("Daemon: Query to connect from " + r[2] + "\n")
@@ -167,9 +183,19 @@ class pServerWorker:
     def send_ka_to_clients(s):
         tn = time()
         for i in s.clients:
-            #if tn - i['last_ka'] < s.ka_timeout:
             s.send_packet_data(i['address'], int(i['port']), 0, data=s.myid)
-            s.logger("Daemon: Send KA to " + i['address'] + str(i['port']) + "\n")
+            if i['id']:
+                s.logger("[" + s.myid + "] Daemon: Send KA to " + i['id'] + "\n")
+            else:
+                s.logger("[" + s.myid + "] Daemon: Send KA to " + i['address'] + " " + str(i['port']) + "\n")
+
+            if s.wait_client == i['id'] and s.wait_client > '':
+                print "I'm exit because " + s.wait_client + " is appeared"
+                s.socket.close()
+                s.th_run = 0
+                s.th.join()
+                del s
+                break
 
     def catch_client_cmd(s, addrport, cmdid, size, response):
         r = str(response)
@@ -191,55 +217,6 @@ class pServerWorker:
                 return i['address'], i['port']
 
         return False
-    
-    def user_console(s, data):
-        r = str(data).strip().rstrip().split(" ")
 
-        if r[0] in s.usercommands:
-            if r[0] == 'help':
-                print "Available commands:"
-                for i in s.usercommands:
-                    print i 
-            elif r[0] == 'connect':
-                remoteid = r[1]
-                print "Connecting to " + remoteid
-                s.send_data(data="get " + remoteid)
-                s.send_data(data="conn " + remoteid)
 
-           #elif r[0] == '>' or r[0] == 'write':
-           #    claddr, clport = s.id2ip(r[1])
-           #    cmdlen = len(r[0])+len(r[1])+1
-           #    s.send_packet_data(claddr, clport, 2, data[cmdlen:])
-
-            elif r[0] == 'exec':
-                claddr, clport = s.id2ip(r[1])
-                cmdlen = len(r[0])+len(r[1])+1
-                s.send_packet_data(claddr, clport, 2, data[cmdlen:])
-
-            elif r[0] == 'log':
-                s.printlog()
-
-            elif r[0] == 'clients':
-                print "Name\t\tAddress\tPort\tLast response"
-                for i in s.clients:
-                    print i['id'] + "\t" + i['address'] + "\t" + str(i['port']) + "\t" + str(i['last_ka'])
-            elif r[0] == 'testbuff':
-                claddr, clport = s.id2ip(r[1])
-                bufflen = int(r[2]) 
-                sbuff = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in xrange(bufflen))
-                s.send_packet_data(claddr, clport, 128+2, sbuff)
-            elif r[0] == 'getfile':
-                claddr, clport = s.id2ip(r[1])
-                fname = r[2]
-                fobj = s.ostream
-                fobj['name'] = fname
-                fobj['type'] = 'file'
-                fobj['uid'] = ''
-                fobj['size'] = 0
-                s.send_packet_data(claddr, clport, 3, pickle.dumps(fobj))
-            else:
-                ret = cmdparser(data)
-
-        else:
-            print "Invalid command"
-
+import socket
