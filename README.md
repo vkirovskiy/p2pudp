@@ -1,6 +1,8 @@
+
 # What is it
 
 This script demonstrates how to connect using UDP hole punching.
+If you want completed tool to make udp hole use p2ptool instead.
 
 # How it works
 
